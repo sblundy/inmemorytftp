@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	port := flag.Int("port", 69, "Port to listen for connections")
+	port := flag.Uint("port", 69, "Port to listen for connections")
 	flag.Parse()
 	fmt.Printf("Listening on %d\n", *port)
 	service := server.New(*port, 10*time.Second)
