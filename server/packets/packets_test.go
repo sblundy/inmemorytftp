@@ -197,6 +197,7 @@ func TestErrorPacket_Bytes(t *testing.T) {
 }
 
 func assert2ByteCodeEqual(bytes []byte, b1 byte, b2 byte, t *testing.T, msg string) {
+	t.Helper()
 	if !(len(bytes) == 2 && bytes[0] == b1 && bytes[1] == b2) {
 		t.Error(msg, bytes)
 	}

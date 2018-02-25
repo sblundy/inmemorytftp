@@ -12,7 +12,7 @@ import (
 
 const writeBlockTimeout = 30 * time.Second
 
-func HandleWriteRequest(conn connection.TftpPacketConn, filename string) {
+func HandleWriteRequest(conn connection.TftpPacketConn, filename string) ([]byte, bool) {
 	logger := log.New(os.Stdout, fmt.Sprintf("TftpServer.WriteRequest(%s->%s) ", conn.RemoteAddr(), conn.LocalAddr()), log.LstdFlags)
 	logger.Println("Start write", filename)
 	conn.Write(packets.NewAck(0))
@@ -23,7 +23,7 @@ func HandleWriteRequest(conn connection.TftpPacketConn, filename string) {
 		nextBlock, done := readPacket(buff, conn, block)
 		if done {
 			logger.Println("End write", filename, buff.Bytes())
-			return
+			return buff.Bytes(), true
 		} else if nextBlock {
 			block++
 			// Each time a block is received, update the timeout
@@ -32,6 +32,7 @@ func HandleWriteRequest(conn connection.TftpPacketConn, filename string) {
 	}
 
 	logger.Println("End write:timed out", filename)
+	return nil, false
 }
 
 func readPacket(buff *bytes.Buffer, conn connection.TftpPacketConn, block uint16) (blockReceived bool, done bool) {

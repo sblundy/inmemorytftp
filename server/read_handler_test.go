@@ -60,12 +60,14 @@ func TestHandleReadRequest_ExhaustRetry(t *testing.T) {
 }
 
 func assertNumSent(t *testing.T, actual *list.List, expected int) {
+	t.Helper()
 	if actual.Len() != expected {
 		t.Error("Incorrect number of packets sent", actual)
 	}
 }
 
 func assertDataPacket(t *testing.T, actual *list.Element, expectedBlock uint16, expectedData []byte) {
+	t.Helper()
 	switch actual.Value.(type) {
 	default:
 		t.Error("Incorrect type packet sent", actual.Value)
@@ -81,6 +83,7 @@ func assertDataPacket(t *testing.T, actual *list.Element, expectedBlock uint16, 
 }
 
 func assertErrorPacket(t *testing.T, actual *list.Element, expectedCode uint16, expectedMsg string) {
+	t.Helper()
 	switch actual.Value.(type) {
 	default:
 		t.Error("Incorrect type packet sent", actual.Value)

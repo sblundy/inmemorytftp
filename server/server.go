@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"github.com/sblundy/inmemorytftp/server/connection"
 	"github.com/sblundy/inmemorytftp/server/packets"
+	"github.com/sblundy/inmemorytftp/server/store"
 	"log"
 	"net"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -16,6 +16,8 @@ type TftpServer struct {
 	port         uint
 	run          bool
 	runCheckFreq time.Duration
+	store        store.Store
+	done         chan bool
 }
 
 func New(port uint, runCheckFreq time.Duration) TftpServer {
@@ -24,6 +26,8 @@ func New(port uint, runCheckFreq time.Duration) TftpServer {
 		port:         port,
 		run:          true,
 		runCheckFreq: runCheckFreq,
+		store:        store.New(),
+		done:         make(chan bool),
 	}
 }
 
@@ -32,6 +36,7 @@ func (server *TftpServer) Listen() {
 	conn, err := net.ListenPacket("udp", listenAddr)
 	if err != nil {
 		server.logger.Fatalln("Unable to open port", server.port, err)
+		server.done <- true
 		return
 	}
 	defer conn.Close()
@@ -62,10 +67,12 @@ func (server *TftpServer) Listen() {
 			go server.handlePacket(conn, buff[:n], addr)
 		}
 	}
+	server.done <- true
 }
 
 func (server *TftpServer) Stop() {
 	server.run = false
+	<-server.done
 }
 
 func (server *TftpServer) handlePacket(conn net.PacketConn, buff []byte, addr net.Addr) {
@@ -96,11 +103,12 @@ func (server *TftpServer) handleDefault(replyChannel connection.TftpReplyChannel
 }
 
 func (server *TftpServer) onReadRequest(replyChannel connection.TftpReplyChannel, packet packets.ReadPacket, target net.Addr) {
-	var fileBytes []byte = nil
-	//TODO impl
-	if packet.Filename == "dummy.txt" {
-		fileBytes = []byte(strings.Repeat("1234567890", 100))
+	fileBytes, prs := server.store.Get(packet.Filename)
+	if !prs {
+		replyChannel.Write(packets.NewError(1, "File not found"))
+		return
 	}
+
 	conn, err := connection.New(target)
 	if err != nil {
 		log.Println("Unable to open a local port!", err)
@@ -108,11 +116,7 @@ func (server *TftpServer) onReadRequest(replyChannel connection.TftpReplyChannel
 		return
 	}
 	defer conn.Close()
-	if fileBytes == nil {
-		replyChannel.Write(packets.NewError(1, "File not found"))
-	} else {
-		HandleReadRequest(conn, fileBytes)
-	}
+	HandleReadRequest(conn, fileBytes)
 }
 
 func (server *TftpServer) onWriteRequest(replyChannel connection.TftpReplyChannel, packet packets.WritePacket, sender net.Addr) {
@@ -130,7 +134,10 @@ func (server *TftpServer) onWriteRequest(replyChannel connection.TftpReplyChanne
 	}
 	defer conn.Close()
 
-	HandleWriteRequest(conn, packet.Filename)
+	fileBytes, ok := HandleWriteRequest(conn, packet.Filename)
+	if ok {
+		server.store.Put(packet.Filename, fileBytes)
+	}
 }
 
 func (server *TftpServer) onData(replyChannel connection.TftpReplyChannel, packet packets.DataPacket) {
