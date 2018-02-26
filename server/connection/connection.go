@@ -4,6 +4,7 @@ import (
 	"github.com/sblundy/inmemorytftp/server/packets"
 	"log"
 	"net"
+	"os"
 	"time"
 )
 
@@ -20,13 +21,15 @@ type TftpReplyChannel interface {
 }
 
 type Connection struct {
-	conn  *net.UDPConn
-	raddr net.Addr
+	logger log.Logger
+	conn   *net.UDPConn
+	raddr  net.Addr
 }
 
 type ResponseChannel struct {
-	conn  net.PacketConn
-	raddr net.Addr
+	logger log.Logger
+	conn   net.PacketConn
+	raddr  net.Addr
 }
 
 func New(destination net.Addr) (TftpPacketConn, error) {
@@ -37,11 +40,19 @@ func New(destination net.Addr) (TftpPacketConn, error) {
 
 	conn, err := net.ListenUDP("udp", laddr)
 
-	return &Connection{conn: conn, raddr: destination}, nil
+	return &Connection{
+		logger: *log.New(os.Stdout, "Connection ", log.LstdFlags),
+		conn:   conn,
+		raddr:  destination,
+	}, nil
 }
 
 func WrapExisting(conn net.PacketConn, raddr net.Addr) TftpReplyChannel {
-	return &ResponseChannel{conn: conn, raddr: raddr}
+	return &ResponseChannel{
+		logger: *log.New(os.Stdout, "Connection ", log.LstdFlags),
+		conn:   conn,
+		raddr:  raddr,
+	}
 }
 
 func (conn *Connection) LocalAddr() string {
@@ -57,7 +68,7 @@ func (conn *Connection) Read(timeout time.Duration) (packets.Packet, bool) {
 	conn.conn.SetReadDeadline(time.Now().Add(timeout))
 	n, err := conn.conn.Read(buff)
 	if err != nil {
-		log.Println("Error reading", err)
+		conn.logger.Println("ERROR: reading packet", err)
 		return nil, false
 	}
 	return packets.Read(buff[:n])
@@ -66,7 +77,7 @@ func (conn *Connection) Read(timeout time.Duration) (packets.Packet, bool) {
 func (conn *Connection) Write(packet packets.Packet) bool {
 	_, err := conn.conn.WriteTo(packet.Bytes(), conn.raddr)
 	if err != nil {
-		log.Println("Error writing", err)
+		conn.logger.Println("ERROR: writing packet", err)
 		return false
 	}
 	return true
@@ -79,7 +90,7 @@ func (conn *Connection) Close() {
 func (conn *ResponseChannel) Write(packet packets.Packet) bool {
 	_, err := conn.conn.WriteTo(packet.Bytes(), conn.raddr)
 	if err != nil {
-		log.Println("Error writing", err)
+		conn.logger.Println("ERROR: writing packet", err)
 		return false
 	}
 	return true

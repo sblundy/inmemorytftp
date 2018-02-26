@@ -50,6 +50,7 @@ func TestHandleWriteRequest_Timeout(t *testing.T) {
 	assertAckPacket(t, dummyConn.packetWritten.Front(), 0)
 	assertAckPacket(t, dummyConn.packetWritten.Back(), 1)
 }
+
 func TestHandleWriteRequest_ResendsAckOnDuplicateData(t *testing.T) {
 	fileContents := []byte(strings.Repeat("12345678", 64))
 	dummyConn := NewDummyPacketConn("TestHandleWriteRequest_EmptyFile", packets.NewData(1, fileContents),
@@ -64,6 +65,20 @@ func TestHandleWriteRequest_ResendsAckOnDuplicateData(t *testing.T) {
 	assertAckPacket(t, dummyConn.packetWritten.Back().Prev().Prev(), 1)
 	assertAckPacket(t, dummyConn.packetWritten.Back().Prev(), 1)
 	assertAckPacket(t, dummyConn.packetWritten.Back(), 2)
+}
+
+func TestHandleWriteRequest_HandlesPrematureTermination(t *testing.T) {
+	fileContents := []byte(strings.Repeat("12345678", 64))
+	dummyConn := NewDummyPacketConn("TestHandleWriteRequest_EmptyFile", packets.NewData(1, fileContents),
+		packets.NewData(1, fileContents),
+		packets.NewError(3, "test"))
+
+	_, ok := HandleWriteRequest(&dummyConn, "test.txt")
+
+	if ok {
+		t.Error("Expected to fail")
+	}
+	assertNumSent(t, dummyConn.packetWritten, 3)
 }
 
 func assertSuccess(t *testing.T, ok bool, contents []byte, expectedContents []byte) {

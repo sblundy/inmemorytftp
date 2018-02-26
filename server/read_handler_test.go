@@ -49,14 +49,29 @@ func TestHandleReadRequest_Retry(t *testing.T) {
 	assertDataPacket(t, dummyConn.packetWritten.Back(), 1, []byte{})
 }
 
-func TestHandleReadRequest_ExhaustRetry(t *testing.T) {
-	dummyConn := NewDummyPacketConn("TestHandleReadRequest_Retry", nil, nil, nil, nil)
+func TestHandleReadRequest_Timeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip()
+	}
+	dummyConn := NewDummyPacketConn("TestHandleReadRequest_ExhaustRetry")
 
 	HandleReadRequest(&dummyConn, []byte{})
 
-	assertNumSent(t, dummyConn.packetWritten, 1+maxBlockRetries+1)
 	assertDataPacket(t, dummyConn.packetWritten.Front(), 1, []byte{})
 	assertErrorPacket(t, dummyConn.packetWritten.Back(), 5, "Send failed")
+}
+
+func TestHandleReadRequest_PrematureTermination(t *testing.T) {
+	dummyConn := NewDummyPacketConn("TestHandleReadRequest_PrematureTermination",
+		packets.NewAck(1),
+		packets.NewError(3, "test"))
+	file := strings.Repeat("1", MaxPayloadSize)
+
+	HandleReadRequest(&dummyConn, []byte(file))
+
+	assertNumSent(t, dummyConn.packetWritten, 2)
+	assertDataPacket(t, dummyConn.packetWritten.Front(), 1, []byte(file))
+	assertDataPacket(t, dummyConn.packetWritten.Front().Next(), 2, []byte{})
 }
 
 func assertNumSent(t *testing.T, actual *list.List, expected int) {

@@ -20,29 +20,46 @@ func HandleWriteRequest(conn connection.TftpPacketConn, filename string) ([]byte
 	var block uint16 = 1
 	nextBlockDeadline := time.Now().Add(writeBlockTimeout)
 	for time.Now().Before(nextBlockDeadline) {
-		nextBlock, done := readPacket(buff, conn, block)
-		if done {
-			logger.Println("End write", filename, buff.Bytes())
+		switch readPacket(buff, conn, block) {
+		case NormalTermination:
+			logger.Println("End write", filename, len(buff.Bytes()))
 			return buff.Bytes(), true
-		} else if nextBlock {
+		case PrematureTerminate:
+			logger.Println("WARN: Write terminated", filename)
+			return nil, false
+		case BlockReceived:
 			block++
 			// Each time a block is received, update the timeout
 			nextBlockDeadline = time.Now().Add(writeBlockTimeout)
+		case BlockBotReceived:
+
 		}
 	}
 
-	logger.Println("End write:timed out", filename)
+	logger.Println("ERROR: End write:timed out", filename)
 	return nil, false
 }
 
-func readPacket(buff *bytes.Buffer, conn connection.TftpPacketConn, block uint16) (blockReceived bool, done bool) {
+type readOutcome int
+
+const (
+	_                             = iota
+	NormalTermination readOutcome = iota
+	PrematureTerminate
+	BlockReceived
+	BlockBotReceived
+)
+
+func readPacket(buff *bytes.Buffer, conn connection.TftpPacketConn, block uint16) readOutcome {
 	packet, ok := conn.Read(2 * time.Second)
 	if !ok {
 		//Re-acknowledging the previous block in case that ACK was lost
 		conn.Write(packets.NewAck(block - 1))
-		return false, false
+		return BlockBotReceived
 	}
 	switch packet.(type) {
+	case packets.ErrorPacket:
+		return PrematureTerminate
 	case packets.DataPacket:
 		data := packet.(packets.DataPacket)
 		if block == data.Block {
@@ -50,13 +67,13 @@ func readPacket(buff *bytes.Buffer, conn connection.TftpPacketConn, block uint16
 			conn.Write(packets.NewAck(block))
 			if len(data.Data) < MaxPayloadSize {
 				//All done
-				return true, true
+				return NormalTermination
 			}
-			return true, false
-		} else {
+			return BlockReceived
+		} else if data.Block < block {
 			//Re-acknowledging the previous block in case that ACK was lost
 			conn.Write(packets.NewAck(block - 1))
 		}
 	}
-	return false, false
+	return BlockBotReceived
 }

@@ -50,19 +50,19 @@ func (server *TftpServer) Listen() {
 		if err != nil {
 			switch err.(type) {
 			default:
-				server.logger.Println(err.Error())
+				server.logger.Println("ERROR:", err.Error())
 			case *net.OpError:
 				opErr := err.(*net.OpError)
 				if opErr.Timeout() {
 					continue
 				} else {
-					server.logger.Println(err.Error())
+					server.logger.Println("ERROR:", err.Error())
 				}
 			}
 		} else if n == 0 {
-			server.logger.Println("Packet is empty", addr)
+			server.logger.Println("WARN: Packet is empty", addr)
 		} else if n < 2 {
-			server.logger.Println("Packet too short", addr)
+			server.logger.Println("WARN: Packet too short", addr)
 		} else {
 			go server.handlePacket(conn, buff[:n], addr)
 		}
@@ -98,7 +98,7 @@ func (server *TftpServer) handlePacket(conn net.PacketConn, buff []byte, addr ne
 }
 
 func (server *TftpServer) handleDefault(replyChannel connection.TftpReplyChannel, packet packets.Packet) {
-	server.logger.Println("Unexpected packet received", packet)
+	server.logger.Println("WARN: Unexpected packet received", packet)
 	replyChannel.Write(packets.NewError(4, "Not understood"))
 }
 

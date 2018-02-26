@@ -10,7 +10,7 @@ import (
 )
 
 const MaxPayloadSize = 512
-const maxBlockRetries = 3
+const readBlockTimeout = 30 * time.Second
 
 func HandleReadRequest(conn connection.TftpPacketConn, payload []byte) {
 	logger := log.New(os.Stdout, fmt.Sprintf("TftpServer.ReadRequest(%s->%s) ", conn.LocalAddr(), conn.RemoteAddr()), log.LstdFlags)
@@ -21,63 +21,77 @@ func HandleReadRequest(conn connection.TftpPacketConn, payload []byte) {
 		nextStartIndex := blockId * MaxPayloadSize
 		block := payload[startIndex:nextStartIndex]
 		if !sendBlock(conn, blockId, block, logger) {
-			conn.Write(packets.NewError(5, "Send failed"))
-			logger.Println("End send:failed")
+			logger.Println("ERROR: End send:failed")
 			return
 		}
 	}
 	lastBlockStartIndex := (numBlocks - 1) * MaxPayloadSize
 	if !sendBlock(conn, numBlocks, payload[lastBlockStartIndex:], logger) {
-		conn.Write(packets.NewError(5, "Send failed"))
-		logger.Println("End send:failed")
+		logger.Println("ERROR: End send:failed")
 	} else {
 		logger.Println("End send")
 	}
 }
 
 func sendBlock(conn connection.TftpPacketConn, blockId uint16, block []byte, logger *log.Logger) bool {
-	if trySendBlock(conn, blockId, block, logger) {
-		return true
-	} else {
-		for i := 0; i < maxBlockRetries; i++ {
-			logger.Printf("Failed to send data. Retry %d/%d", i+1, maxBlockRetries)
-			if trySendBlock(conn, blockId, block, logger) {
-				return true
-			}
+	deadline := time.Now().Add(readBlockTimeout)
+	retry := 0
+	for time.Now().Before(deadline) {
+		result := trySendBlock(conn, blockId, block, logger)
+		switch result {
+		case AckNotReceived:
+			retry++
+		case AckReceived:
+			return true
+		case WriteFailed:
+			conn.Write(packets.NewError(5, "Send failed"))
+			return false
+		case PrematureTermination:
+			return false
 		}
-		return false
 	}
+
+	conn.Write(packets.NewError(5, "Send failed"))
+	return false
 }
 
-func trySendBlock(conn connection.TftpPacketConn, blockId uint16, block []byte, logger *log.Logger) bool {
+func trySendBlock(conn connection.TftpPacketConn, blockId uint16, block []byte, logger *log.Logger) responseType {
 	packet := packets.NewData(blockId, block)
 	ok := conn.Write(packet)
 	if !ok {
-		return false
+		return WriteFailed
 	}
 
-	if !receiveAck(conn, blockId, logger) {
-		logger.Println("Ack not received")
-		return false
-	}
-	return true
+	return receiveAck(conn, blockId, logger)
 }
 
-func receiveAck(conn connection.TftpPacketConn, block uint16, logger *log.Logger) bool {
+type responseType int
+
+const (
+	_              = iota
+	AckNotReceived = iota
+	AckReceived
+	WriteFailed
+	PrematureTermination
+)
+
+func receiveAck(conn connection.TftpPacketConn, block uint16, logger *log.Logger) responseType {
 	packet, ok := conn.Read(10 * time.Second)
 	if !ok {
-		return false
+		return AckNotReceived
 	}
 
 	switch packet.(type) {
 	default:
-		logger.Println("Unexpected packet received")
+		logger.Println("WARN: Unexpected packet received")
+	case packets.ErrorPacket:
+		return PrematureTermination
 	case packets.AckPacket:
 		ack := packet.(packets.AckPacket)
 		if ack.Block == block {
-			return true
+			return AckReceived
 		}
 	}
 
-	return false
+	return AckNotReceived
 }
